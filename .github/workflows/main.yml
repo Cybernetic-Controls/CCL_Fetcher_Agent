@@ -1,0 +1,149 @@
+name: CCL Email Fetcher CI/CD
+
+on:
+  push:
+    branches: [ main, master, dev-nouman ]
+  pull_request:
+    branches: [ main, master, dev-nouman ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:13-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: Zainab123
+          POSTGRES_DB: ccl_email_fetcher_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.10'
+    
+    - name: Install Python dependencies
+      run: |
+        cd backend
+        python -m pip install --upgrade pip
+        pip install pytest
+        pip install psycopg2-binary passlib python-jose[cryptography] python-multipart bcrypt httpx msal anthropic
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '18'
+    
+    - name: Install Node.js dependencies - Backend
+      run: |
+        cd backend
+        npm ci
+    
+    - name: Install Node.js dependencies - Frontend
+      run: |
+        cd frontend/ccl-email-fetcher
+        npm ci
+    
+    - name: Run backend tests
+      run: |
+        cd backend
+        # Add your backend tests here
+        echo "Running backend tests..." # Replace with actual test command when available
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
+    
+    - name: Login to DockerHub
+      uses: docker/login-action@v1
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    
+    - name: Build and push FastAPI backend
+      uses: docker/build-push-action@v2
+      with:
+        context: ./backend
+        file: ./backend/Dockerfile.fastapi
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ secrets.DOCKER_USERNAME }}/ccl-fetcher-fastapi:latest
+    
+    - name: Build and push Express backend
+      uses: docker/build-push-action@v2
+      with:
+        context: ./backend
+        file: ./backend/Dockerfile.express
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ secrets.DOCKER_USERNAME }}/ccl-fetcher-express:latest
+    
+    - name: Build and push Frontend
+      uses: docker/build-push-action@v2
+      with:
+        context: ./frontend/ccl-email-fetcher
+        file: ./frontend/ccl-email-fetcher/Dockerfile
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ secrets.DOCKER_USERNAME }}/ccl-fetcher-frontend:latest
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      CLIENT_ID: 193cecdd-4e1c-47dd-9f6b-9b318845944a
+      CLIENT_SECRET: cLt8Q~qfi7S~5uojcqSTZMfu76PKmPLch6SuXbvU
+      TENANT_ID: 17dba054-2a2b-4037-8c2a-5ec30609dd26
+      JWT_SECRET_KEY: 09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7
+      ANTHROPIC_API_KEY: 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
+    
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Create .env file
+      run: |
+        cat > .env.prod << EOF
+        DOCKER_USERNAME=$DOCKER_USERNAME
+        CLIENT_ID=$CLIENT_ID
+        CLIENT_SECRET=$CLIENT_SECRET
+        TENANT_ID=$TENANT_ID
+        JWT_SECRET_KEY=$JWT_SECRET_KEY
+        ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+        EOF
+    
+    - name: Copy docker-compose.prod.yml to server
+      uses: appleboy/scp-action@master
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        username: ${{ secrets.DEPLOY_USERNAME }}
+        key: ${{ secrets.DEPLOY_KEY }}
+        source: "docker-compose.prod.yml,.env.prod"
+        target: "/path/to/deployment"
+    
+    - name: Deploy to production server
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        username: ${{ secrets.DEPLOY_USERNAME }}
+        key: ${{ secrets.DEPLOY_KEY }}
+        script: |
+          cd /path/to/deployment
+          export DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
+          docker-compose -f docker-compose.prod.yml down
+          docker-compose -f docker-compose.prod.yml up -d
