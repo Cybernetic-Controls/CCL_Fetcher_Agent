@@ -138,13 +138,30 @@ jobs:
         key: ${{ secrets.DEPLOY_KEY }}
         source: "docker-compose.prod.yml,.env.prod,docker-images/*"
         target: "/path/to/deployment"
+        debug: true
+        timeout: 60s
     
-    - name: Deploy to production server
+    - name: Test server connection
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.DEPLOY_HOST }}
         username: ${{ secrets.DEPLOY_USERNAME }}
         key: ${{ secrets.DEPLOY_KEY }}
+        debug: true
+        timeout: 60s
+        script: |
+          echo "Server connection test successful"
+          pwd
+          ls -la
+    
+    - name: Deploy to production server
+      uses: appleboy/ssh-action@v1.0.3
+      if: success()
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        username: ${{ secrets.DEPLOY_USERNAME }}
+        key: ${{ secrets.DEPLOY_KEY }}
+        timeout: 60s
         script: |
           cd /path/to/deployment
           # Load Docker images
