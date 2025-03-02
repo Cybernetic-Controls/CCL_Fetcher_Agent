@@ -85,6 +85,20 @@ jobs:
       run: |
         cd frontend/ccl-email-fetcher
         docker build -t ccl-fetcher-frontend:latest .
+        
+    - name: Save Docker images
+      run: |
+        mkdir -p docker-images
+        docker save ccl-fetcher-fastapi:latest > docker-images/fastapi.tar
+        docker save ccl-fetcher-express:latest > docker-images/express.tar
+        docker save ccl-fetcher-frontend:latest > docker-images/frontend.tar
+        
+    - name: Upload Docker images as artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: docker-images
+        path: docker-images/
+        retention-days: 1
 
   deploy:
     needs: build
@@ -100,6 +114,12 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     
+    - name: Download Docker images
+      uses: actions/download-artifact@v2
+      with:
+        name: docker-images
+        path: docker-images
+    
     - name: Create .env file
       run: |
         cat > .env.prod << EOF
@@ -109,14 +129,6 @@ jobs:
         JWT_SECRET_KEY=$JWT_SECRET_KEY
         ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
         EOF
-    
-    # Save Docker images as tar files
-    - name: Save Docker images
-      run: |
-        mkdir -p docker-images
-        docker save ccl-fetcher-fastapi:latest > docker-images/fastapi.tar
-        docker save ccl-fetcher-express:latest > docker-images/express.tar
-        docker save ccl-fetcher-frontend:latest > docker-images/frontend.tar
     
     - name: Copy files to server
       uses: appleboy/scp-action@master
