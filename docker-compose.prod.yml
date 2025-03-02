@@ -19,7 +19,7 @@ services:
     restart: always
 
   backend_fastapi:
-    image: ccl-fetcher-fastapi:latest
+    image: ghcr.io/cybernetic-controls/ccl_fetcher_agent/ccl-fetcher-fastapi:latest
     ports:
       - "8000:8000"
     environment:
@@ -34,7 +34,7 @@ services:
     restart: always
 
   backend_express:
-    image: ccl-fetcher-express:latest
+    image: ghcr.io/cybernetic-controls/ccl_fetcher_agent/ccl-fetcher-express:latest
     ports:
       - "5001:5000"  # Changed to avoid conflict with other services
     environment:
@@ -48,7 +48,7 @@ services:
     restart: always
 
   frontend:
-    image: ccl-fetcher-frontend:latest
+    image: ghcr.io/cybernetic-controls/ccl_fetcher_agent/ccl-fetcher-frontend:latest
     ports:
       - "80:3000"  # Map to port 80 for production
     depends_on:
