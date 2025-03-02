@@ -1,0 +1,62 @@
+version: '3'
+
+services:
+  postgres:
+    image: postgres:13-alpine
+    ports:
+      - "5433:5432"  # Using a different port to avoid conflicts
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=Zainab123
+      - POSTGRES_DB=ccl_email_fetcher
+    volumes:
+      - postgres_docker_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  backend_fastapi:
+    image: ${DOCKER_USERNAME}/ccl-fetcher-fastapi:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - CLIENT_ID=${CLIENT_ID}
+      - CLIENT_SECRET=${CLIENT_SECRET}
+      - TENANT_ID=${TENANT_ID}
+      - DATABASE_URL=postgresql://postgres:Zainab123@postgres:5432/ccl_email_fetcher
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+    restart: always
+
+  backend_express:
+    image: ${DOCKER_USERNAME}/ccl-fetcher-express:latest
+    ports:
+      - "5001:5000"  # Changed to avoid conflict with other services
+    environment:
+      - CLIENT_ID=${CLIENT_ID}
+      - CLIENT_SECRET=${CLIENT_SECRET}
+      - TENANT_ID=${TENANT_ID}
+      - DATABASE_URL=postgresql://postgres:Zainab123@postgres:5432/ccl_email_fetcher
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+    depends_on:
+      - postgres
+    restart: always
+
+  frontend:
+    image: ${DOCKER_USERNAME}/ccl-fetcher-frontend:latest
+    ports:
+      - "80:3000"  # Map to port 80 for production
+    depends_on:
+      - backend_express
+      - backend_fastapi
+    environment:
+      - REACT_APP_API_URL=http://localhost:5001
+    restart: always
+
+volumes:
+  postgres_docker_data:
