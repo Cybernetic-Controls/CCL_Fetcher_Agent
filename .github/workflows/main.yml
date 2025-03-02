@@ -71,42 +71,26 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v1
     
-    - name: Login to DockerHub
-      uses: docker/login-action@v1
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+    - name: Build FastAPI backend
+      run: |
+        cd backend
+        docker build -f Dockerfile.fastapi -t ccl-fetcher-fastapi:latest .
     
-    - name: Build and push FastAPI backend
-      uses: docker/build-push-action@v2
-      with:
-        context: ./backend
-        file: ./backend/Dockerfile.fastapi
-        push: ${{ github.event_name != 'pull_request' }}
-        tags: ${{ secrets.DOCKER_USERNAME }}/ccl-fetcher-fastapi:latest
+    - name: Build Express backend
+      run: |
+        cd backend
+        docker build -f Dockerfile.express -t ccl-fetcher-express:latest .
     
-    - name: Build and push Express backend
-      uses: docker/build-push-action@v2
-      with:
-        context: ./backend
-        file: ./backend/Dockerfile.express
-        push: ${{ github.event_name != 'pull_request' }}
-        tags: ${{ secrets.DOCKER_USERNAME }}/ccl-fetcher-express:latest
-    
-    - name: Build and push Frontend
-      uses: docker/build-push-action@v2
-      with:
-        context: ./frontend/ccl-email-fetcher
-        file: ./frontend/ccl-email-fetcher/Dockerfile
-        push: ${{ github.event_name != 'pull_request' }}
-        tags: ${{ secrets.DOCKER_USERNAME }}/ccl-fetcher-frontend:latest
+    - name: Build Frontend
+      run: |
+        cd frontend/ccl-email-fetcher
+        docker build -t ccl-fetcher-frontend:latest .
 
   deploy:
     needs: build
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     env:
-      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       CLIENT_ID: 193cecdd-4e1c-47dd-9f6b-9b318845944a
       CLIENT_SECRET: cLt8Q~qfi7S~5uojcqSTZMfu76PKmPLch6SuXbvU
       TENANT_ID: 17dba054-2a2b-4037-8c2a-5ec30609dd26
@@ -119,7 +103,6 @@ jobs:
     - name: Create .env file
       run: |
         cat > .env.prod << EOF
-        DOCKER_USERNAME=$DOCKER_USERNAME
         CLIENT_ID=$CLIENT_ID
         CLIENT_SECRET=$CLIENT_SECRET
         TENANT_ID=$TENANT_ID
@@ -127,13 +110,21 @@ jobs:
         ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
         EOF
     
-    - name: Copy docker-compose.prod.yml to server
+    # Save Docker images as tar files
+    - name: Save Docker images
+      run: |
+        mkdir -p docker-images
+        docker save ccl-fetcher-fastapi:latest > docker-images/fastapi.tar
+        docker save ccl-fetcher-express:latest > docker-images/express.tar
+        docker save ccl-fetcher-frontend:latest > docker-images/frontend.tar
+    
+    - name: Copy files to server
       uses: appleboy/scp-action@master
       with:
         host: ${{ secrets.DEPLOY_HOST }}
         username: ${{ secrets.DEPLOY_USERNAME }}
         key: ${{ secrets.DEPLOY_KEY }}
-        source: "docker-compose.prod.yml,.env.prod"
+        source: "docker-compose.prod.yml,.env.prod,docker-images/*"
         target: "/path/to/deployment"
     
     - name: Deploy to production server
@@ -144,6 +135,9 @@ jobs:
         key: ${{ secrets.DEPLOY_KEY }}
         script: |
           cd /path/to/deployment
-          export DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
+          # Load Docker images
+          docker load < docker-images/fastapi.tar
+          docker load < docker-images/express.tar
+          docker load < docker-images/frontend.tar
           docker-compose -f docker-compose.prod.yml down
           docker-compose -f docker-compose.prod.yml up -d
