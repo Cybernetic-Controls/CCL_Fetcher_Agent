@@ -1,0 +1,73 @@
+version: '3'
+
+services:
+  postgres:
+    image: postgres:13-alpine
+    ports:
+      - "5433:5432"  # Using a different port to avoid conflicts
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=Zainab123
+      - POSTGRES_DB=ccl_email_fetcher
+    volumes:
+      - postgres_docker_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend_fastapi:
+    build:
+      context: ./backend  # The directory where your FastAPI Dockerfile is located
+      dockerfile: Dockerfile.fastapi  # Ensure the correct Dockerfile name
+    ports:
+      - "8000:8000"  # Map FastAPI to localhost:8000
+    environment:
+      - CLIENT_ID=193cecdd-4e1c-47dd-9f6b-9b318845944a
+      - CLIENT_SECRET=cLt8Q~qfi7S~5uojcqSTZMfu76PKmPLch6SuXbvU
+      - TENANT_ID=17dba054-2a2b-4037-8c2a-5ec30609dd26
+      - DATABASE_URL=postgresql://postgres:Zainab123@postgres:5432/ccl_email_fetcher
+      - JWT_SECRET_KEY=09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+  backend_express:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.express
+    ports:
+      - "5001:5000"  # Changed to avoid conflict with other services
+    environment:
+      - CLIENT_ID=193cecdd-4e1c-47dd-9f6b-9b318845944a
+      - CLIENT_SECRET=cLt8Q~qfi7S~5uojcqSTZMfu76PKmPLch6SuXnU
+      - TENANT_ID=17dba054-2a2b-4037-8c2a-5ec30609dd26
+      - DATABASE_URL=postgresql://postgres:Zainab123@postgres:5432/ccl_email_fetcher
+      - JWT_SECRET_KEY=09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend/ccl-email-fetcher
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3000"  # Change frontend port to 3001 (if necessary)
+    depends_on:
+      - backend_fastapi
+      - backend_express
+    environment:
+      - REACT_APP_API_URL=http://localhost:5001  # Update the Express URL to new port
+      - REACT_APP_FASTAPI_URL=http://localhost:8000  # Add if frontend needs FastAPI
+    volumes:
+      - ./frontend/ccl-email-fetcher:/app
+      - /app/node_modules
+
+volumes:
+  postgres_docker_data:

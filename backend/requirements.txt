@@ -1,1 +1,4 @@
+fastapi
+uvicorn[standard]
 httpx==0.24.1
+sqlalchemy

@@ -1,0 +1,27 @@
+FROM python:3.10-slim
+
+# Set working directory in the container
+WORKDIR /app
+
+# Install build dependencies for psycopg2
+RUN apt-get update && apt-get install -y \
+    gcc \
+    python3-dev \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the requirements file to the container
+COPY requirements.txt .
+
+# Install the dependencies with all required packages
+RUN pip install --no-cache-dir psycopg2-binary passlib python-jose[cryptography] python-multipart bcrypt httpx msal anthropic --default-timeout=100
+RUN pip install --no-cache-dir --default-timeout=100 -r requirements.txt
+
+# Copy the rest of the FastAPI code to the container
+COPY . .
+
+# Expose FastAPI port
+EXPOSE 8000
+
+# Start FastAPI server using uvicorn
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
