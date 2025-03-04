@@ -30,6 +30,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add root route
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to CCL Email Fetcher API", "version": "0.1.0"}
+
 # Database dependency
 def get_db():
     db = SessionLocal()
