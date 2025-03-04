@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: ccl-fetcher-frontend
+    env: static
+    buildCommand: cd frontend/ccl-email-fetcher && npm install && npm run build
+    staticPublishPath: ./frontend/ccl-email-fetcher/build
+    envVars:
+      - key: REACT_APP_API_URL
+        value: https://ccl-fetcher-backend.onrender.com
+    
+  - type: web
+    name: ccl-fetcher-backend
+    env: python
+    buildCommand: cd backend && pip install -r requirements.txt && pip install psycopg2-binary
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: CLIENT_ID
+        value: 193cecdd-4e1c-47dd-9f6b-9b318845944a
+      - key: CLIENT_SECRET
+        value: cLt8Q~qfi7S~5uojcqSTZMfu76PKmPLch6SuXbvU
+      - key: TENANT_ID
+        value: 17dba054-2a2b-4037-8c2a-5ec30609dd26
+      - key: JWT_SECRET_KEY
+        value: 09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7
+      - key: ANTHROPIC_API_KEY
+        value: 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
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ccl-postgres-db
+          property: connectionString
+
+databases:
+  - name: ccl-postgres-db
+    databaseName: ccl_email_fetcher
+    user: postgres
+    plan: free
