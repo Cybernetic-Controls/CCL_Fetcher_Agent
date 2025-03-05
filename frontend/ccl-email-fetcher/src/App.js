@@ -3,6 +3,7 @@ import { Search, LogOut, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription } from './components/ui/alert';
 import EmailDetail from './components/ui/EmailDetail';
 import TaskPanel from './components/ui/TaskPanel';
+import API_URL from './apiConfig';
 
 const App = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -23,7 +24,7 @@ const App = () => {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:8000/token', {
+      const response = await fetch(`${API_URL}/token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -48,7 +49,7 @@ const App = () => {
       const formattedEndDate = endDate ? new Date(endDate).toISOString() : '';
       
       const response = await fetch(
-        `http://localhost:8000/emails/?search=${searchTerm}&start_date=${formattedStartDate}&end_date=${formattedEndDate}`,
+        `${API_URL}/emails/?search=${searchTerm}&start_date=${formattedStartDate}&end_date=${formattedEndDate}`,
         {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -72,7 +73,7 @@ const App = () => {
   const fetchTasks = useCallback(async () => {
     setTasksLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/extract-tasks/', {
+      const response = await fetch(`${API_URL}/extract-tasks/`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -93,7 +94,7 @@ const App = () => {
     console.log('Sync started');  // Debug log
     setSyncStatus('syncing');
     try {
-      const response = await fetch('http://localhost:8000/sync-emails/', {
+      const response = await fetch(`${API_URL}/sync-emails/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
