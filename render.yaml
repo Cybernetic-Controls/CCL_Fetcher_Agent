@@ -4,9 +4,13 @@ services:
     env: static
     buildCommand: cd frontend/ccl-email-fetcher && npm install && npm run build
     staticPublishPath: ./frontend/ccl-email-fetcher/build
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://ccl-fetcher-backend.onrender.com/*
     envVars:
       - key: REACT_APP_API_URL
-        value: https://ccl-fetcher-backend.onrender.com
+        value: /api
     
   - type: web
     name: ccl-fetcher-backend
@@ -32,5 +36,5 @@ services:
 databases:
   - name: ccl-postgres-db
     databaseName: ccl_email_fetcher
-    user: ccl_user
+    user: postgres
     plan: free
