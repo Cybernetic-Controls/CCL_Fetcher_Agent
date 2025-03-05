@@ -36,5 +36,4 @@ services:
 databases:
   - name: ccl-postgres-db
     databaseName: ccl_email_fetcher
-    user: postgres
     plan: free
