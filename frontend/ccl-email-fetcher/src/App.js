@@ -1,11 +1,27 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, LogOut, RefreshCw } from 'lucide-react';
+import { Search, LogOut, RefreshCw, Inbox, Star, AlertCircle, Trash, Send } from 'lucide-react';
 import { Alert, AlertDescription } from './components/ui/alert';
 import EmailDetail from './components/ui/EmailDetail';
 import TaskPanel from './components/ui/TaskPanel';
 import API_URL from './apiConfig';
 
+// Simple Toast component
+const Toast = ({ message, type, onClose }) => {
+  return (
+    <div className={`fixed bottom-4 right-4 px-4 py-2 rounded-md shadow-lg transition-opacity duration-300 
+      ${type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>
+      <div className="flex items-center">
+        <span>{message}</span>
+        <button onClick={onClose} className="ml-4 text-white hover:text-gray-200">
+          ×
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const App = () => {
+  // Keep all your existing state variables
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -20,6 +36,85 @@ const App = () => {
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [tasksLoading, setTasksLoading] = useState(true);
+  
+  // Add toast notification state
+  const [toast, setToast] = useState({ visible: false, message: '', type: 'success' });
+  
+  // Add new state for email categories
+  const [currentCategory, setCurrentCategory] = useState('inbox');
+  const [categorizedEmails, setCategorizedEmails] = useState({
+    inbox: [],
+    important: [],
+    spam: [],
+    trash: [],
+    sent: []
+  });
+
+  // NEW: Check if user is already logged in on page load
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      setIsAuthenticated(true);
+    }
+  }, []);
+
+  // FIXED categorizeEmails function to ensure emails are in ONLY ONE primary category
+  const categorizeEmails = useCallback((emailList) => {
+    const categorized = {
+      inbox: [],
+      important: [],
+      spam: [],
+      trash: [],
+      sent: []
+    };
+    
+    emailList.forEach(email => {
+      // STRICT EXCLUSIVE CATEGORIZATION
+      // An email can be in EXACTLY ONE of these primary categories
+      if (email.flags?.includes('spam')) {
+        categorized.spam.push(email);
+      } else if (email.flags?.includes('trash')) {
+        categorized.trash.push(email);
+      } else if (email.flags?.includes('sent')) {
+        categorized.sent.push(email);
+      } else {
+        // If not in any special category, it goes to inbox
+        categorized.inbox.push(email);
+      }
+      
+      // Important can include emails from any category
+      if (email.flags?.includes('important')) {
+        categorized.important.push(email);
+      }
+    });
+    
+    // Debug to verify counts
+    console.log('Email counts:', {
+      total: emailList.length,
+      inbox: categorized.inbox.length,
+      important: categorized.important.length,
+      sent: categorized.sent.length,
+      spam: categorized.spam.length,
+      trash: categorized.trash.length,
+      sum: categorized.inbox.length + categorized.sent.length + 
+           categorized.spam.length + categorized.trash.length
+    });
+    
+    setCategorizedEmails(categorized);
+  }, []);
+
+  // NEW: Save email flags to localStorage when they change
+  useEffect(() => {
+    // Save categorized emails to localStorage whenever they change
+    if (isAuthenticated && emails.length > 0) {
+      localStorage.setItem('emailFlags', JSON.stringify(
+        emails.map(email => ({
+          id: email.id,
+          flags: email.flags || []
+        }))
+      ));
+    }
+  }, [emails, isAuthenticated]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -59,16 +154,39 @@ const App = () => {
       
       if (!response.ok) throw new Error('Failed to fetch emails');
       
-      const data = await response.json();
-      console.log('Fetched emails:', data); // Debug log
+      let data = await response.json();
+      console.log('Fetched emails:', data);
+      
+      // NEW: Apply saved flags to fetched emails
+      const savedFlags = localStorage.getItem('emailFlags');
+      if (savedFlags) {
+        try {
+          const flagsData = JSON.parse(savedFlags);
+          // Apply saved flags to fetched emails
+          data = data.map(email => {
+            const savedEmail = flagsData.find(item => item.id === email.id);
+            if (savedEmail) {
+              return {
+                ...email,
+                flags: savedEmail.flags
+              };
+            }
+            return email;
+          });
+        } catch (e) {
+          console.error('Error parsing saved flags', e);
+        }
+      }
+      
       setEmails(data);
+      categorizeEmails(data);
       setLoading(false);
     } catch (err) {
-      console.error('Fetch error:', err); // Debug log
+      console.error('Fetch error:', err);
       setError(err.message);
       setLoading(false);
     }
-  }, [searchTerm, startDate, endDate]);
+  }, [searchTerm, startDate, endDate, categorizeEmails]);
 
   const fetchTasks = useCallback(async () => {
     setTasksLoading(true);
@@ -91,7 +209,7 @@ const App = () => {
   }, []);
 
   const syncEmails = useCallback(async () => {
-    console.log('Sync started');  // Debug log
+    console.log('Sync started');
     setSyncStatus('syncing');
     try {
       const response = await fetch(`${API_URL}/sync-emails/`, {
@@ -101,7 +219,7 @@ const App = () => {
         }
       });
       
-      console.log('Response:', response);  // Debug log
+      console.log('Response:', response);
       
       if (!response.ok) {
         const errorData = await response.text();
@@ -112,7 +230,7 @@ const App = () => {
       setSyncStatus('success');
       await fetchEmails();
     } catch (err) {
-      console.error('Sync error:', err);  // Debug log
+      console.error('Sync error:', err);
       setSyncStatus('error');
       setError(err.message);
     }
@@ -134,6 +252,111 @@ const App = () => {
   const handleEmailClick = (email) => {
     setSelectedEmail(email);
   };
+
+  // Helper function to get the current category of an email
+  const getEmailCategory = useCallback((email) => {
+    if (!email || !email.flags) return 'inbox';
+    
+    if (email.flags.includes('spam')) return 'spam';
+    if (email.flags.includes('trash')) return 'trash';
+    if (email.flags.includes('sent')) return 'sent';
+    return 'inbox';
+  }, []);
+
+  // FIXED: Completely updated changeEmailCategory function to fix category movement issues
+  const changeEmailCategory = useCallback(async (emailId, category) => {
+    try {
+      // Get the email being changed
+      const emailToChange = emails.find(email => email.id === emailId);
+      const previousCategory = getEmailCategory(emailToChange);
+      
+      // Skip if trying to move to the same category (except for 'important' which toggles)
+      if (previousCategory === category && category !== 'important') {
+        return;
+      }
+      
+      // First update UI optimistically - create a new copy of emails array
+      const updatedEmails = emails.map(email => {
+        if (email.id === emailId) {
+          // Create a new flags array to ensure UI updates
+          let flags = email.flags ? [...email.flags] : [];
+          
+          // FIXED: Handle category changes more strictly
+          if (category === 'important') {
+            // Special case: 'important' is a toggle and can co-exist with other categories
+            if (flags.includes('important')) {
+              flags = flags.filter(f => f !== 'important');
+            } else {
+              flags.push('important');
+            }
+          } else {
+            // FIXED: For all other categories, COMPLETELY REMOVE existing category flags first
+            flags = flags.filter(f => f === 'important');  // Keep only 'important' flag if present
+            
+            // Don't add 'inbox' as a flag, it's the default when no other category flag exists
+            if (category !== 'inbox') {
+              flags.push(category);
+            }
+          }
+          
+          // Return updated email with new flags
+          return { ...email, flags };
+        }
+        return email;
+      });
+      
+      // Update emails state - this will trigger re-render
+      setEmails(updatedEmails);
+      
+      // Re-categorize with updated flags
+      categorizeEmails(updatedEmails);
+      
+      // Show toast notification with clear message about what changed
+      let toastMessage;
+      if (category === 'important') {
+        toastMessage = emailToChange.flags?.includes('important')
+          ? 'Removed from important'
+          : 'Marked as important';
+      } else if (previousCategory !== category) {
+        toastMessage = `Email moved from ${previousCategory} to ${category}`;
+      }
+      
+      if (toastMessage) {
+        setToast({
+          visible: true,
+          message: toastMessage,
+          type: 'success'
+        });
+        
+        // Hide toast after 3 seconds
+        setTimeout(() => {
+          setToast({ visible: false, message: '', type: 'success' });
+        }, 3000);
+      }
+      
+      // Save to localStorage for persistence
+      localStorage.setItem('emailFlags', JSON.stringify(
+        updatedEmails.map(email => ({
+          id: email.id,
+          flags: email.flags || []
+        }))
+      ));
+      
+    } catch (err) {
+      console.error('Error updating category:', err);
+      setError(err.message);
+      setToast({
+        visible: true,
+        message: 'Failed to update email category',
+        type: 'error'
+      });
+      
+      // Hide error toast after 3 seconds
+      setTimeout(() => {
+        setToast({ visible: false, message: '', type: 'error' });
+      }, 3000);
+    }
+  }, [emails, categorizeEmails, getEmailCategory]);
 
   if (!isAuthenticated) {
     return (
@@ -180,6 +403,9 @@ const App = () => {
     );
   }
 
+  // Get the emails for the current category
+  const currentEmails = categorizedEmails[currentCategory] || [];
+
   return (
     <div className="min-h-screen bg-gray-100">
       <header className="bg-white shadow">
@@ -188,6 +414,7 @@ const App = () => {
           <button
             onClick={() => {
               localStorage.removeItem('token');
+              localStorage.removeItem('emailFlags'); // NEW: Also clear saved flags on logout
               setIsAuthenticated(false);
             }}
             className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md"
@@ -199,9 +426,88 @@ const App = () => {
       </header>
 
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-4 gap-6">
-          {/* Email section - Takes up 3 columns */}
-          <div className="col-span-3">
+        <div className="grid grid-cols-5 gap-6">
+          {/* Email categories sidebar */}
+          <div className="col-span-1">
+            <nav className="bg-white shadow rounded-lg overflow-hidden">
+              <ul>
+                <li>
+                  <button 
+                    onClick={() => setCurrentCategory('inbox')}
+                    className={`flex items-center w-full px-4 py-3 text-left hover:bg-gray-50 ${currentCategory === 'inbox' ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}
+                  >
+                    <Inbox className="w-5 h-5 mr-3" />
+                    Inbox
+                    <span className="ml-auto bg-gray-100 text-xs rounded-full px-2 py-1">
+                      {categorizedEmails.inbox.length}
+                    </span>
+                  </button>
+                </li>
+                <li>
+                  <button 
+                    onClick={() => setCurrentCategory('important')}
+                    className={`flex items-center w-full px-4 py-3 text-left hover:bg-gray-50 ${currentCategory === 'important' ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}
+                  >
+                    <Star className="w-5 h-5 mr-3" />
+                    Important
+                    <span className="ml-auto bg-gray-100 text-xs rounded-full px-2 py-1">
+                      {categorizedEmails.important.length}
+                    </span>
+                  </button>
+                </li>
+                <li>
+                  <button 
+                    onClick={() => setCurrentCategory('sent')}
+                    className={`flex items-center w-full px-4 py-3 text-left hover:bg-gray-50 ${currentCategory === 'sent' ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}
+                  >
+                    <Send className="w-5 h-5 mr-3" />
+                    Sent
+                    <span className="ml-auto bg-gray-100 text-xs rounded-full px-2 py-1">
+                      {categorizedEmails.sent.length}
+                    </span>
+                  </button>
+                </li>
+                <li>
+                  <button 
+                    onClick={() => setCurrentCategory('spam')}
+                    className={`flex items-center w-full px-4 py-3 text-left hover:bg-gray-50 ${currentCategory === 'spam' ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}
+                  >
+                    <AlertCircle className="w-5 h-5 mr-3" />
+                    Spam
+                    <span className="ml-auto bg-gray-100 text-xs rounded-full px-2 py-1">
+                      {categorizedEmails.spam.length}
+                    </span>
+                  </button>
+                </li>
+                <li>
+                  <button 
+                    onClick={() => setCurrentCategory('trash')}
+                    className={`flex items-center w-full px-4 py-3 text-left hover:bg-gray-50 ${currentCategory === 'trash' ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}
+                  >
+                    <Trash className="w-5 h-5 mr-3" />
+                    Trash
+                    <span className="ml-auto bg-gray-100 text-xs rounded-full px-2 py-1">
+                      {categorizedEmails.trash.length}
+                    </span>
+                  </button>
+                </li>
+              </ul>
+            </nav>
+            
+            {/* Task Panel below the sidebar */}
+            <div className="mt-6">
+              {tasksLoading ? (
+                <div className="bg-white rounded-lg shadow p-4">
+                  <div className="text-center py-4">Loading tasks...</div>
+                </div>
+              ) : (
+                <TaskPanel tasks={tasks} />
+              )}
+            </div>
+          </div>
+
+          {/* Email section - Takes up 4 columns */}
+          <div className="col-span-4">
             {/* Controls section - Always visible */}
             <div className="bg-white p-4 rounded-lg shadow mb-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -253,6 +559,7 @@ const App = () => {
               <EmailDetail
                 email={selectedEmail}
                 onBack={() => setSelectedEmail(null)}
+                onCategoryChange={changeEmailCategory}
               />
             ) : (
               <>
@@ -265,43 +572,73 @@ const App = () => {
                 ) : (
                   <div className="bg-white rounded-lg shadow overflow-hidden">
                     <div className="divide-y divide-gray-200">
-                      {emails.map((email) => (
-                        <div
-                          key={email.id}
-                          className="p-4 hover:bg-gray-50 cursor-pointer"
-                          onClick={() => handleEmailClick(email)}
-                        >
-                          <div className="flex items-start justify-between">
-                            <div className="flex-grow">
-                              <h3 className="text-lg font-medium text-gray-900">{email.subject}</h3>
-                              <p className="text-sm text-gray-500">{email.sender}</p>
-                            </div>
-                            <span className="text-sm text-gray-500 ml-4">
-                              {new Date(email.date).toLocaleDateString()}
-                            </span>
-                          </div>
-                          <p className="mt-2 text-sm text-gray-600 line-clamp-2">{email.body}</p>
+                      {currentCategory === 'inbox' && (
+                        <div className="bg-gray-50 px-4 py-2 text-sm font-medium">
+                          Inbox - {currentEmails.length} emails
                         </div>
-                      ))}
+                      )}
+                      {currentCategory === 'important' && (
+                        <div className="bg-yellow-50 px-4 py-2 text-sm font-medium text-yellow-800">
+                          Important - {currentEmails.length} emails
+                        </div>
+                      )}
+                      {currentCategory === 'spam' && (
+                        <div className="bg-red-50 px-4 py-2 text-sm font-medium text-red-800">
+                          Spam - {currentEmails.length} emails
+                        </div>
+                      )}
+                      {currentCategory === 'sent' && (
+                        <div className="bg-green-50 px-4 py-2 text-sm font-medium text-green-800">
+                          Sent - {currentEmails.length} emails
+                        </div>
+                      )}
+                      {currentCategory === 'trash' && (
+                        <div className="bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800">
+                          Trash - {currentEmails.length} emails
+                        </div>
+                      )}
+                      
+                      {currentEmails.length === 0 ? (
+                        <div className="p-8 text-center text-gray-500">
+                          No emails in this category
+                        </div>
+                      ) : (
+                        currentEmails.map((email) => (
+                          <div
+                            key={email.id}
+                            className="p-4 hover:bg-gray-50 cursor-pointer"
+                            onClick={() => handleEmailClick(email)}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-grow">
+                                <h3 className="text-lg font-medium text-gray-900">{email.subject}</h3>
+                                <p className="text-sm text-gray-500">{email.sender}</p>
+                              </div>
+                              <span className="text-sm text-gray-500 ml-4">
+                                {new Date(email.date).toLocaleDateString()}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-sm text-gray-600 line-clamp-2">{email.body}</p>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
                 )}
               </>
             )}
           </div>
-
-          {/* Task Panel - Takes up 1 column */}
-          <div className="col-span-1">
-            {tasksLoading ? (
-              <div className="bg-white rounded-lg shadow p-4">
-                <div className="text-center py-4">Loading tasks...</div>
-              </div>
-            ) : (
-              <TaskPanel tasks={tasks} />
-            )}
-          </div>
         </div>
       </main>
+
+      {/* Toast notification */}
+      {toast.visible && (
+        <Toast 
+          message={toast.message} 
+          type={toast.type} 
+          onClose={() => setToast({ ...toast, visible: false })} 
+        />
+      )}
     </div>
   );
 };
