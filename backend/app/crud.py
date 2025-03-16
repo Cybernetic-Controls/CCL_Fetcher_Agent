@@ -6,6 +6,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 import os
 from dotenv import load_dotenv
+from sqlalchemy import or_
 
 load_dotenv()
 
@@ -77,25 +78,32 @@ def create_email(db: Session, email: schemas.EmailCreate):
     db.refresh(db_email)
     return db_email
 
-def get_emails(db: Session, skip: int = 0, limit: int = 100, start_date: datetime = None, end_date: datetime = None):
+def get_emails(db: Session, skip: int = 0, limit: int = 100, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, account: Optional[str] = None):
     query = db.query(models.Email)
     
     if start_date:
         query = query.filter(models.Email.date >= start_date)
     if end_date:
         query = query.filter(models.Email.date <= end_date)
+    if account:
+        query = query.filter(models.Email.recipient == account)
         
-    return query.offset(skip).limit(limit).all()
+    return query.order_by(models.Email.date.desc()).offset(skip).limit(limit).all()
 
-def search_emails(db: Session, search_term: str, start_date: datetime = None, end_date: datetime = None):
+def search_emails(db: Session, search_term: str, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, account: Optional[str] = None):
     query = db.query(models.Email).filter(
-        models.Email.subject.ilike(f"%{search_term}%") |
-        models.Email.body.ilike(f"%{search_term}%")
+        or_(
+            models.Email.subject.contains(search_term),
+            models.Email.body.contains(search_term),
+            models.Email.sender.contains(search_term)
+        )
     )
     
     if start_date:
         query = query.filter(models.Email.date >= start_date)
     if end_date:
         query = query.filter(models.Email.date <= end_date)
+    if account:
+        query = query.filter(models.Email.recipient == account)
         
-    return query.all()
+    return query.order_by(models.Email.date.desc()).all()

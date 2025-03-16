@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, LogOut, RefreshCw, Inbox, Star, AlertCircle, Trash, Send } from 'lucide-react';
+import { Search, LogOut, RefreshCw, Inbox, Star, AlertCircle, Trash, Send, Tag, FileText, BellRing, DollarSign } from 'lucide-react';
 import { Alert, AlertDescription } from './components/ui/alert';
 import EmailDetail from './components/ui/EmailDetail';
 import TaskPanel from './components/ui/TaskPanel';
@@ -40,14 +40,19 @@ const App = () => {
   // Add toast notification state
   const [toast, setToast] = useState({ visible: false, message: '', type: 'success' });
   
-  // Add new state for email categories
+  // Add states for email categories
   const [currentCategory, setCurrentCategory] = useState('inbox');
   const [categorizedEmails, setCategorizedEmails] = useState({
     inbox: [],
     important: [],
     spam: [],
     trash: [],
-    sent: []
+    sent: [],
+    promotion: [],
+    updates: [],
+    notification: [],
+    finance: [],
+    primary: []
   });
 
   // NEW: Check if user is already logged in on page load
@@ -65,7 +70,12 @@ const App = () => {
       important: [],
       spam: [],
       trash: [],
-      sent: []
+      sent: [],
+      promotion: [],
+      updates: [],
+      notification: [],
+      finance: [],
+      primary: []
     };
     
     emailList.forEach(email => {
@@ -80,6 +90,17 @@ const App = () => {
       } else {
         // If not in any special category, it goes to inbox
         categorized.inbox.push(email);
+        
+        // Also add to the appropriate content category based on the category field
+        if (email.category) {
+          if (categorized[email.category]) {
+            categorized[email.category].push(email);
+          } else {
+            categorized.primary.push(email);
+          }
+        } else {
+          categorized.primary.push(email);
+        }
       }
       
       // Important can include emails from any category
@@ -96,6 +117,11 @@ const App = () => {
       sent: categorized.sent.length,
       spam: categorized.spam.length,
       trash: categorized.trash.length,
+      promotion: categorized.promotion.length,
+      updates: categorized.updates.length,
+      notification: categorized.notification.length,
+      finance: categorized.finance.length,
+      primary: categorized.primary.length,
       sum: categorized.inbox.length + categorized.sent.length + 
            categorized.spam.length + categorized.trash.length
     });
@@ -110,7 +136,8 @@ const App = () => {
       localStorage.setItem('emailFlags', JSON.stringify(
         emails.map(email => ({
           id: email.id,
-          flags: email.flags || []
+          flags: email.flags || [],
+          category: email.category || 'primary'
         }))
       ));
     }
@@ -168,10 +195,14 @@ const App = () => {
             if (savedEmail) {
               return {
                 ...email,
-                flags: savedEmail.flags
+                flags: savedEmail.flags,
+                category: email.category || savedEmail.category || 'primary'
               };
             }
-            return email;
+            return {
+              ...email,
+              category: email.category || 'primary'
+            };
           });
         } catch (e) {
           console.error('Error parsing saved flags', e);
@@ -215,8 +246,10 @@ const App = () => {
       const response = await fetch(`${API_URL}/sync-emails/`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({})
       });
       
       console.log('Response:', response);
@@ -228,13 +261,75 @@ const App = () => {
       }
       
       setSyncStatus('success');
+      setToast({
+        visible: true,
+        message: "Successfully synced emails",
+        type: 'success'
+      });
+      
+      setTimeout(() => {
+        setToast({ visible: false, message: '', type: 'success' });
+      }, 3000);
+      
       await fetchEmails();
     } catch (err) {
       console.error('Sync error:', err);
       setSyncStatus('error');
       setError(err.message);
+      
+      setToast({
+        visible: true,
+        message: `Sync failed: ${err.message}`,
+        type: 'error'
+      });
+      
+      setTimeout(() => {
+        setToast({ visible: false, message: '', type: 'error' });
+      }, 3000);
     }
   }, [fetchEmails]);
+
+  // Change email category on server
+  const changeEmailContentCategory = useCallback(async (emailId, category) => {
+    try {
+      const response = await fetch(`${API_URL}/emails/${emailId}/categorize`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ category })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to categorize email');
+      }
+      
+      // Update local state
+      const updatedEmails = emails.map(email => {
+        if (email.id === emailId) {
+          return { ...email, category };
+        }
+        return email;
+      });
+      
+      setEmails(updatedEmails);
+      categorizeEmails(updatedEmails);
+      
+      setToast({
+        visible: true,
+        message: `Email moved to ${category}`,
+        type: 'success'
+      });
+      
+      setTimeout(() => {
+        setToast({ visible: false, message: '', type: 'success' });
+      }, 3000);
+    } catch (err) {
+      console.error('Error changing category:', err);
+      setError(err.message);
+    }
+  }, [emails, categorizeEmails]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -338,7 +433,8 @@ const App = () => {
       localStorage.setItem('emailFlags', JSON.stringify(
         updatedEmails.map(email => ({
           id: email.id,
-          flags: email.flags || []
+          flags: email.flags || [],
+          category: email.category || 'primary'
         }))
       ));
       
@@ -430,6 +526,9 @@ const App = () => {
           {/* Email categories sidebar */}
           <div className="col-span-1">
             <nav className="bg-white shadow rounded-lg overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-200">
+                <h3 className="text-sm font-medium text-gray-500">FOLDERS</h3>
+              </div>
               <ul>
                 <li>
                   <button 
@@ -448,7 +547,7 @@ const App = () => {
                     onClick={() => setCurrentCategory('important')}
                     className={`flex items-center w-full px-4 py-3 text-left hover:bg-gray-50 ${currentCategory === 'important' ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}
                   >
-                    <Star className="w-5 h-5 mr-3" />
+                    <Star className="w-5 h-5 mr-3 text-yellow-500" />
                     Important
                     <span className="ml-auto bg-gray-100 text-xs rounded-full px-2 py-1">
                       {categorizedEmails.important.length}
@@ -472,7 +571,7 @@ const App = () => {
                     onClick={() => setCurrentCategory('spam')}
                     className={`flex items-center w-full px-4 py-3 text-left hover:bg-gray-50 ${currentCategory === 'spam' ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}
                   >
-                    <AlertCircle className="w-5 h-5 mr-3" />
+                    <AlertCircle className="w-5 h-5 mr-3 text-red-500" />
                     Spam
                     <span className="ml-auto bg-gray-100 text-xs rounded-full px-2 py-1">
                       {categorizedEmails.spam.length}
@@ -488,6 +587,72 @@ const App = () => {
                     Trash
                     <span className="ml-auto bg-gray-100 text-xs rounded-full px-2 py-1">
                       {categorizedEmails.trash.length}
+                    </span>
+                  </button>
+                </li>
+              </ul>
+
+              <div className="px-4 py-3 border-t border-b border-gray-200">
+                <h3 className="text-sm font-medium text-gray-500">CATEGORIES</h3>
+              </div>
+              <ul>
+                <li>
+                  <button 
+                    onClick={() => setCurrentCategory('primary')}
+                    className={`flex items-center w-full px-4 py-3 text-left hover:bg-gray-50 ${currentCategory === 'primary' ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}
+                  >
+                    <Inbox className="w-5 h-5 mr-3 text-blue-500" />
+                    Primary
+                    <span className="ml-auto bg-gray-100 text-xs rounded-full px-2 py-1">
+                      {categorizedEmails.primary.length}
+                    </span>
+                  </button>
+                </li>
+                <li>
+                  <button 
+                    onClick={() => setCurrentCategory('promotion')}
+                    className={`flex items-center w-full px-4 py-3 text-left hover:bg-gray-50 ${currentCategory === 'promotion' ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}
+                  >
+                    <Tag className="w-5 h-5 mr-3 text-green-500" />
+                    Promotions
+                    <span className="ml-auto bg-gray-100 text-xs rounded-full px-2 py-1">
+                      {categorizedEmails.promotion.length}
+                    </span>
+                  </button>
+                </li>
+                <li>
+                  <button 
+                    onClick={() => setCurrentCategory('updates')}
+                    className={`flex items-center w-full px-4 py-3 text-left hover:bg-gray-50 ${currentCategory === 'updates' ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}
+                  >
+                    <FileText className="w-5 h-5 mr-3 text-purple-500" />
+                    Updates
+                    <span className="ml-auto bg-gray-100 text-xs rounded-full px-2 py-1">
+                      {categorizedEmails.updates.length}
+                    </span>
+                  </button>
+                </li>
+                <li>
+                  <button 
+                    onClick={() => setCurrentCategory('notification')}
+                    className={`flex items-center w-full px-4 py-3 text-left hover:bg-gray-50 ${currentCategory === 'notification' ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}
+                  >
+                    <BellRing className="w-5 h-5 mr-3 text-yellow-600" />
+                    Notifications
+                    <span className="ml-auto bg-gray-100 text-xs rounded-full px-2 py-1">
+                      {categorizedEmails.notification.length}
+                    </span>
+                  </button>
+                </li>
+                <li>
+                  <button 
+                    onClick={() => setCurrentCategory('finance')}
+                    className={`flex items-center w-full px-4 py-3 text-left hover:bg-gray-50 ${currentCategory === 'finance' ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}
+                  >
+                    <DollarSign className="w-5 h-5 mr-3 text-green-600" />
+                    Finance
+                    <span className="ml-auto bg-gray-100 text-xs rounded-full px-2 py-1">
+                      {categorizedEmails.finance.length}
                     </span>
                   </button>
                 </li>
@@ -560,6 +725,7 @@ const App = () => {
                 email={selectedEmail}
                 onBack={() => setSelectedEmail(null)}
                 onCategoryChange={changeEmailCategory}
+                onContentCategoryChange={changeEmailContentCategory}
               />
             ) : (
               <>
@@ -572,6 +738,7 @@ const App = () => {
                 ) : (
                   <div className="bg-white rounded-lg shadow overflow-hidden">
                     <div className="divide-y divide-gray-200">
+                      {/* Different header styles based on current category */}
                       {currentCategory === 'inbox' && (
                         <div className="bg-gray-50 px-4 py-2 text-sm font-medium">
                           Inbox - {currentEmails.length} emails
@@ -597,6 +764,31 @@ const App = () => {
                           Trash - {currentEmails.length} emails
                         </div>
                       )}
+                      {currentCategory === 'primary' && (
+                        <div className="bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800">
+                          Primary - {currentEmails.length} emails
+                        </div>
+                      )}
+{currentCategory === 'promotion' && (
+  <div className="bg-green-50 px-4 py-2 text-sm font-medium text-green-800">
+    Promotions - {currentEmails.length} emails
+  </div>
+)}
+{currentCategory === 'updates' && (
+  <div className="bg-purple-50 px-4 py-2 text-sm font-medium text-purple-800">
+    Updates - {currentEmails.length} emails
+  </div>
+)}
+{currentCategory === 'notification' && (
+  <div className="bg-yellow-50 px-4 py-2 text-sm font-medium text-yellow-800">
+    Notifications - {currentEmails.length} emails
+  </div>
+)}
+{currentCategory === 'finance' && (
+  <div className="bg-green-50 px-4 py-2 text-sm font-medium text-green-800">
+    Finance - {currentEmails.length} emails
+  </div>
+)}
                       
                       {currentEmails.length === 0 ? (
                         <div className="p-8 text-center text-gray-500">

@@ -12,7 +12,7 @@ class UserCreate(UserBase):
 class User(UserBase):
     id: int
     is_active: bool
-
+    
     class Config:
         from_attributes = True
 
@@ -30,7 +30,17 @@ class EmailCreate(EmailBase):
 class Email(EmailBase):
     id: int
     date: datetime
+    
+    class Config:
+        from_attributes = True
 
+# Email Account schemas
+class EmailAccount(BaseModel):
+    id: int
+    email: str
+    display_name: Optional[str] = None
+    is_active: bool = True
+    
     class Config:
         from_attributes = True
 
@@ -49,7 +59,7 @@ class TaskCreate(TaskBase):
 class Task(TaskBase):
     id: int
     email_source: int
-
+    
     class Config:
         from_attributes = True
 
@@ -60,8 +70,3 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     username: Optional[str] = None
-
-
-
-
-

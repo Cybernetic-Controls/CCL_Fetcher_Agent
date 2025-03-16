@@ -1,18 +1,19 @@
 import json
 import httpx
 from datetime import datetime, timedelta
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from . import crud, models, schemas
 from .database import SessionLocal, engine
-from typing import List
+from typing import List, Optional
 import msal
 import os
 from dotenv import load_dotenv
 from anthropic import Anthropic
 from .task_extractor import TaskExtractor
+from sqlalchemy import or_
 
 load_dotenv()
 
@@ -75,7 +76,8 @@ def read_emails(
     search: str = None,
     start_date: str = None,
     end_date: str = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme)
 ):
     try:
         start = datetime.fromisoformat(start_date.replace('Z', '+00:00')) if start_date else None
@@ -84,21 +86,73 @@ def read_emails(
         start = None
         end = None
 
+    # Always use specific email account
+    account = "nouman.haider@cybernetic-controls.com"
+
     if search:
-        emails = crud.search_emails(db, search, start_date=start, end_date=end)
+        emails = crud.search_emails(db, search, start_date=start, end_date=end, account=account)
     else:
-        emails = crud.get_emails(db, skip=skip, limit=limit, start_date=start, end_date=end)
-    return emails
+        emails = crud.get_emails(db, skip=skip, limit=limit, start_date=start, end_date=end, account=account)
+    
+    # Process emails to detect promotions and other categories
+    categorized_emails = []
+    for email in emails:
+        # Check if the email is already categorized
+        if not hasattr(email, 'category') or not email.category:
+            # Try to determine category based on subject and sender
+            subject_lower = email.subject.lower()
+            sender_lower = email.sender.lower()
+            
+            # Simple rules for categorization
+            if any(term in subject_lower for term in ["promotion", "sale", "discount", "offer", "deal", "save", "limited time"]):
+                email.category = "promotion"
+            elif any(term in subject_lower for term in ["newsletter", "update", "news", "weekly", "monthly"]):
+                email.category = "updates"
+            elif any(term in sender_lower for term in ["no-reply", "noreply", "notification", "alert"]):
+                email.category = "notification"
+            elif any(term in subject_lower for term in ["receipt", "payment", "invoice", "order", "subscription"]):
+                email.category = "finance"
+            else:
+                email.category = "primary"
+        
+        categorized_emails.append(email)
+    
+    return categorized_emails
+
+# Email categorization endpoint
+@app.post("/emails/{email_id}/categorize")
+def categorize_email(
+    email_id: int,
+    category: str,
+    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme)
+):
+    email = db.query(models.Email).filter(models.Email.id == email_id).first()
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    
+    email.category = category
+    db.commit()
+    db.refresh(email)
+    return {"message": f"Email categorized as {category}"}
 
 # Microsoft Graph API integration
 @app.post("/sync-emails/")
-async def sync_emails(db: Session = Depends(get_db)):
+async def sync_emails(
+    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme)
+):
     print("Starting email sync...")
     user_email = "nouman.haider@cybernetic-controls.com"
     
+    print(f"Syncing emails for: {user_email}")
+    
     try:
         # Get the timestamp of the last synced email
-        last_synced_email = db.query(models.Email).order_by(models.Email.date.desc()).first()
+        last_synced_email = db.query(models.Email).filter(
+            models.Email.recipient == user_email
+        ).order_by(models.Email.date.desc()).first()
+        
         last_sync_time = last_synced_email.date if last_synced_email else None
         print(f"Last synced email time: {last_sync_time}")
 
@@ -160,28 +214,46 @@ async def sync_emails(db: Session = Depends(get_db)):
                             
                             existing_email = db.query(models.Email).filter(
                                 models.Email.date == received_date,
-                                models.Email.subject == subject
+                                models.Email.subject == subject,
+                                models.Email.recipient == user_email
                             ).first()
                             
                             if not existing_email:
+                                # Auto-categorize the email
+                                subject_lower = subject.lower()
+                                sender = email_data.get('from', {}).get('emailAddress', {}).get('address', '')
+                                sender_lower = sender.lower()
+                                
+                                # Simple rules for categorization
+                                category = "primary"  # Default category
+                                if any(term in subject_lower for term in ["promotion", "sale", "discount", "offer", "deal", "save", "limited time"]):
+                                    category = "promotion"
+                                elif any(term in subject_lower for term in ["newsletter", "update", "news", "weekly", "monthly"]):
+                                    category = "updates"
+                                elif any(term in sender_lower for term in ["no-reply", "noreply", "notification", "alert"]):
+                                    category = "notification"
+                                elif any(term in subject_lower for term in ["receipt", "payment", "invoice", "order", "subscription"]):
+                                    category = "finance"
+                                
                                 email = schemas.EmailCreate(
                                     subject=subject,
-                                    sender=email_data.get('from', {}).get('emailAddress', {}).get('address', ''),
+                                    sender=sender,
                                     recipient=user_email,
                                     date=received_date,
                                     body=email_data.get('bodyPreview', ''),
-                                    raw_json=json.dumps(email_data)
+                                    raw_json=json.dumps(email_data),
+                                    category=category
                                 )
                                 crud.create_email(db, email)
                                 new_emails_count += 1
-                                print(f"Saved new email: {email.subject}")
+                                print(f"Saved new email: {email.subject} (Category: {category})")
                             else:
                                 print(f"Skipping duplicate email: {subject}")
                         except Exception as e:
                             print(f"Error processing email: {str(e)}")
                             continue
                     
-                    return {"message": f"Successfully synced {new_emails_count} new emails"}
+                    return {"message": f"Successfully synced {new_emails_count} new emails for {user_email}"}
                 else:
                     error_text = await response.text()
                     print(f"Error response: {error_text}")
