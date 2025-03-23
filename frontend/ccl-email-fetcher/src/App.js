@@ -3,6 +3,7 @@ import { Search, LogOut, RefreshCw, Inbox, Star, AlertCircle, Trash, Send, Tag, 
 import { Alert, AlertDescription } from './components/ui/alert';
 import EmailDetail from './components/ui/EmailDetail';
 import TaskPanel from './components/ui/TaskPanel';
+import Dashboard from './components/Dashboard'; // Import Dashboard component
 import API_URL from './apiConfig';
 
 // Simple Toast component
@@ -21,6 +22,9 @@ const Toast = ({ message, type, onClose }) => {
 };
 
 const App = () => {
+  // Add state to control Dashboard visibility
+  const [showDashboard, setShowDashboard] = useState(false);
+  
   // Keep all your existing state variables
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
@@ -52,10 +56,12 @@ const App = () => {
     updates: [],
     notification: [],
     finance: [],
-    primary: []
+    primary: [],
+    ccl_email: [],
+    action: []
   });
 
-  // NEW: Check if user is already logged in on page load
+  // Check if user is already logged in on page load
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
@@ -75,7 +81,9 @@ const App = () => {
       updates: [],
       notification: [],
       finance: [],
-      primary: []
+      primary: [],
+      ccl_email: [],
+      action: []
     };
     
     emailList.forEach(email => {
@@ -122,14 +130,16 @@ const App = () => {
       notification: categorized.notification.length,
       finance: categorized.finance.length,
       primary: categorized.primary.length,
+      ccl_email: categorized.ccl_email.length,
+      action: categorized.action.length,
       sum: categorized.inbox.length + categorized.sent.length + 
-           categorized.spam.length + categorized.trash.length
+      categorized.spam.length + categorized.trash.length
     });
     
     setCategorizedEmails(categorized);
   }, []);
 
-  // NEW: Save email flags to localStorage when they change
+  // Save email flags to localStorage when they change
   useEffect(() => {
     // Save categorized emails to localStorage whenever they change
     if (isAuthenticated && emails.length > 0) {
@@ -499,6 +509,11 @@ const App = () => {
     );
   }
 
+  // If showing dashboard, render the Dashboard component
+  if (showDashboard) {
+    return <Dashboard onBack={() => setShowDashboard(false)} />;
+  }
+
   // Get the emails for the current category
   const currentEmails = categorizedEmails[currentCategory] || [];
 
@@ -507,17 +522,27 @@ const App = () => {
       <header className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 flex justify-between items-center">
           <h1 className="text-3xl font-bold text-gray-900">CCL Email Fetcher</h1>
-          <button
-            onClick={() => {
-              localStorage.removeItem('token');
-              localStorage.removeItem('emailFlags'); // NEW: Also clear saved flags on logout
-              setIsAuthenticated(false);
-            }}
-            className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md"
-          >
-            <LogOut className="w-4 h-4 mr-2" />
-            Logout
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Dashboard button - Updated to use the state instead of URL */}
+            <button
+              onClick={() => setShowDashboard(true)}
+              className="flex items-center px-4 py-2 rounded-md bg-green-600 text-white hover:bg-green-700"
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              Test Dashboard
+            </button>
+            <button
+              onClick={() => {
+                localStorage.removeItem('token');
+                localStorage.removeItem('emailFlags');
+                setIsAuthenticated(false);
+              }}
+              className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Logout
+            </button>
+          </div>
         </div>
       </header>
 
@@ -656,6 +681,30 @@ const App = () => {
                     </span>
                   </button>
                 </li>
+                <li>
+                  <button 
+                    onClick={() => setCurrentCategory('ccl_email')}
+                    className={`flex items-center w-full px-4 py-3 text-left hover:bg-gray-50 ${currentCategory === 'ccl_email' ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}
+                  >
+                    <FileText className="w-5 h-5 mr-3 text-blue-600" />
+                    CCL Emails
+                    <span className="ml-auto bg-gray-100 text-xs rounded-full px-2 py-1">
+                      {categorizedEmails.ccl_email.length}
+                    </span>
+                  </button>
+                </li>
+                <li>
+                  <button 
+                    onClick={() => setCurrentCategory('action')}
+                    className={`flex items-center w-full px-4 py-3 text-left hover:bg-gray-50 ${currentCategory === 'action' ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}
+                  >
+                    <AlertCircle className="w-5 h-5 mr-3 text-orange-500" />
+                    Action Required
+                    <span className="ml-auto bg-gray-100 text-xs rounded-full px-2 py-1">
+                      {categorizedEmails.action.length}
+                    </span>
+                  </button>
+                </li>
               </ul>
             </nav>
             
@@ -789,7 +838,16 @@ const App = () => {
     Finance - {currentEmails.length} emails
   </div>
 )}
-                      
+{currentCategory === 'ccl_email' && (
+  <div className="bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800">
+    CCL Emails - {currentEmails.length} emails
+  </div>
+)}
+{currentCategory === 'action' && (
+  <div className="bg-orange-50 px-4 py-2 text-sm font-medium text-orange-800">
+    Action Required - {currentEmails.length} emails
+  </div>
+)}                    
                       {currentEmails.length === 0 ? (
                         <div className="p-8 text-center text-gray-500">
                           No emails in this category
