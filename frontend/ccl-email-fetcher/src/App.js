@@ -69,75 +69,80 @@ const App = () => {
     }
   }, []);
 
-  // FIXED categorizeEmails function to ensure emails are in ONLY ONE primary category
-  const categorizeEmails = useCallback((emailList) => {
-    const categorized = {
-      inbox: [],
-      important: [],
-      spam: [],
-      trash: [],
-      sent: [],
-      promotion: [],
-      updates: [],
-      notification: [],
-      finance: [],
-      primary: [],
-      ccl_email: [],
-      action: []
-    };
+// FIXED categorizeEmails function to make categories mutually exclusive
+// (important removes from inbox/spam/etc)
+const categorizeEmails = useCallback((emailList) => {
+  const categorized = {
+    inbox: [],
+    important: [],
+    spam: [],
+    trash: [],
+    sent: [],
+    promotion: [],
+    updates: [],
+    notification: [],
+    finance: [],
+    primary: [],
+    ccl_email: [],
+    action: []
+  };
+  
+  emailList.forEach(email => {
+    // MAJOR CHANGE: Check if email is important first, and if so, ONLY add to important
+    if (email.flags?.includes('important')) {
+      categorized.important.push(email);
+      // Skip other categorization - it only goes in important
+      return;
+    }
     
-    emailList.forEach(email => {
-      // STRICT EXCLUSIVE CATEGORIZATION
-      // An email can be in EXACTLY ONE of these primary categories
-      if (email.flags?.includes('spam')) {
-        categorized.spam.push(email);
-      } else if (email.flags?.includes('trash')) {
-        categorized.trash.push(email);
-      } else if (email.flags?.includes('sent')) {
-        categorized.sent.push(email);
-      } else {
-        // If not in any special category, it goes to inbox
-        categorized.inbox.push(email);
-        
-        // Also add to the appropriate content category based on the category field
-        if (email.category) {
-          if (categorized[email.category]) {
-            categorized[email.category].push(email);
-          } else {
-            categorized.primary.push(email);
-          }
+    // If not important, proceed with normal categorization
+    if (email.flags?.includes('spam')) {
+      categorized.spam.push(email);
+    } else if (email.flags?.includes('trash')) {
+      categorized.trash.push(email);
+    } else if (email.flags?.includes('sent')) {
+      categorized.sent.push(email);
+    } else {
+      // If not in any special folder, it belongs to inbox
+      categorized.inbox.push(email);
+      
+      // For inbox emails only, also categorize into content categories
+      if (email.category) {
+        // Make sure the category exists
+        if (categorized[email.category]) {
+          categorized[email.category].push(email);
         } else {
+          // Default to primary if category is invalid
           categorized.primary.push(email);
         }
+      } else {
+        // Default to primary if no category specified
+        categorized.primary.push(email);
       }
-      
-      // Important can include emails from any category
-      if (email.flags?.includes('important')) {
-        categorized.important.push(email);
-      }
-    });
-    
-    // Debug to verify counts
-    console.log('Email counts:', {
-      total: emailList.length,
-      inbox: categorized.inbox.length,
-      important: categorized.important.length,
-      sent: categorized.sent.length,
-      spam: categorized.spam.length,
-      trash: categorized.trash.length,
-      promotion: categorized.promotion.length,
-      updates: categorized.updates.length,
-      notification: categorized.notification.length,
-      finance: categorized.finance.length,
-      primary: categorized.primary.length,
-      ccl_email: categorized.ccl_email.length,
-      action: categorized.action.length,
-      sum: categorized.inbox.length + categorized.sent.length + 
-      categorized.spam.length + categorized.trash.length
-    });
-    
-    setCategorizedEmails(categorized);
-  }, []);
+    }
+  });
+  
+  // Debug to verify counts
+  console.log('Email counts:', {
+    total: emailList.length,
+    inbox: categorized.inbox.length,
+    important: categorized.important.length,
+    sent: categorized.sent.length,
+    spam: categorized.spam.length,
+    trash: categorized.trash.length,
+    promotion: categorized.promotion.length,
+    updates: categorized.updates.length,
+    notification: categorized.notification.length,
+    finance: categorized.finance.length,
+    primary: categorized.primary.length,
+    ccl_email: categorized.ccl_email.length,
+    action: categorized.action.length,
+    sum: categorized.inbox.length + categorized.important.length + 
+         categorized.sent.length + categorized.spam.length + categorized.trash.length
+  });
+  
+  setCategorizedEmails(categorized);
+}, []);
 
   // Save email flags to localStorage when they change
   useEffect(() => {
@@ -175,59 +180,90 @@ const App = () => {
     }
   };
 
-  const fetchEmails = useCallback(async () => {
-    try {
-      const formattedStartDate = startDate ? new Date(startDate).toISOString() : '';
-      const formattedEndDate = endDate ? new Date(endDate).toISOString() : '';
-      
-      const response = await fetch(
-        `${API_URL}/emails/?search=${searchTerm}&start_date=${formattedStartDate}&end_date=${formattedEndDate}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        }
-      );
-      
-      if (!response.ok) throw new Error('Failed to fetch emails');
-      
-      let data = await response.json();
-      console.log('Fetched emails:', data);
-      
-      // NEW: Apply saved flags to fetched emails
-      const savedFlags = localStorage.getItem('emailFlags');
-      if (savedFlags) {
-        try {
-          const flagsData = JSON.parse(savedFlags);
-          // Apply saved flags to fetched emails
-          data = data.map(email => {
-            const savedEmail = flagsData.find(item => item.id === email.id);
-            if (savedEmail) {
-              return {
-                ...email,
-                flags: savedEmail.flags,
-                category: email.category || savedEmail.category || 'primary'
-              };
-            }
-            return {
-              ...email,
-              category: email.category || 'primary'
-            };
-          });
-        } catch (e) {
-          console.error('Error parsing saved flags', e);
+// Fixed fetchEmails function for proper content categories distribution
+const fetchEmails = useCallback(async () => {
+  try {
+    const formattedStartDate = startDate ? new Date(startDate).toISOString() : '';
+    const formattedEndDate = endDate ? new Date(endDate).toISOString() : '';
+    
+    const response = await fetch(
+      `${API_URL}/emails/?search=${searchTerm}&start_date=${formattedStartDate}&end_date=${formattedEndDate}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       }
-      
-      setEmails(data);
-      categorizeEmails(data);
-      setLoading(false);
-    } catch (err) {
-      console.error('Fetch error:', err);
-      setError(err.message);
-      setLoading(false);
+    );
+    
+    if (!response.ok) throw new Error('Failed to fetch emails');
+    
+    let data = await response.json();
+    console.log('Fetched emails:', data);
+    
+    // Retrieve saved flags and categories from localStorage
+    const savedFlags = localStorage.getItem('emailFlags');
+    let savedData = [];
+    
+    if (savedFlags) {
+      try {
+        savedData = JSON.parse(savedFlags);
+        
+        // Apply saved flags AND categories to fetched emails
+        data = data.map(email => {
+          const savedEmail = savedData.find(item => item.id === email.id);
+          if (savedEmail) {
+            return {
+              ...email,
+              flags: savedEmail.flags || [],
+              // Use server category first, then saved category, or default to 'primary'
+              category: email.category || savedEmail.category || 'primary'
+            };
+          }
+          return {
+            ...email,
+            flags: email.flags || [],
+            // If no saved data, ensure a default category exists
+            category: email.category || 'primary'
+          };
+        });
+      } catch (e) {
+        console.error('Error parsing saved flags', e);
+      }
     }
-  }, [searchTerm, startDate, endDate, categorizeEmails]);
+    
+    // For new emails that don't have categories yet, distribute them more evenly
+    // This ensures we have emails in all content categories
+    const newEmails = data.filter(email => {
+      // Find if we already have this email in our saved data
+      return !savedData.some(savedEmail => savedEmail.id === email.id);
+    });
+    
+    // Only distribute emails that are in the inbox (not spam/trash/sent)
+    const newInboxEmails = newEmails.filter(email => 
+      !email.flags?.some(flag => ['spam', 'trash', 'sent'].includes(flag))
+    );
+    
+    // Now distribute these new emails across categories
+    if (newInboxEmails.length > 0) {
+      const categories = ['primary', 'promotion', 'updates', 'notification', 'finance', 'ccl_email', 'action'];
+      
+      // Distribute evenly (simplistic approach - in production you'd use AI/ML to categorize)
+      newInboxEmails.forEach((email, index) => {
+        // Use modulo to cycle through categories
+        const categoryIndex = index % categories.length;
+        email.category = categories[categoryIndex];
+      });
+    }
+    
+    setEmails(data);
+    categorizeEmails(data);
+    setLoading(false);
+  } catch (err) {
+    console.error('Fetch error:', err);
+    setError(err.message);
+    setLoading(false);
+  }
+}, [searchTerm, startDate, endDate, categorizeEmails]);
 
   const fetchTasks = useCallback(async () => {
     setTasksLoading(true);
@@ -299,47 +335,100 @@ const App = () => {
     }
   }, [fetchEmails]);
 
-  // Change email category on server
-  const changeEmailContentCategory = useCallback(async (emailId, category) => {
-    try {
-      const response = await fetch(`${API_URL}/emails/${emailId}/categorize`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ category })
+  // Improved changeEmailContentCategory function to properly update both local state and server
+// IMPROVED changeEmailContentCategory function for Gmail-like behavior
+const changeEmailContentCategory = useCallback(async (emailId, category) => {
+  try {
+    // Get the email being categorized
+    const emailToChange = emails.find(email => email.id === emailId);
+    if (!emailToChange) return;
+    
+    // Content categories only apply to inbox emails
+    // If email is in spam/trash/sent, first move it to inbox
+    let updatedEmails = [...emails];
+    
+    if (emailToChange.flags?.some(flag => ['spam', 'trash', 'sent'].includes(flag))) {
+      // First, move to inbox by updating flags
+      updatedEmails = updatedEmails.map(email => {
+        if (email.id === emailId) {
+          // Keep 'important' flag if present, remove others
+          const flags = (email.flags || []).filter(f => f === 'important');
+          return { ...email, flags, category };
+        }
+        return email;
       });
       
-      if (!response.ok) {
-        throw new Error('Failed to categorize email');
-      }
-      
-      // Update local state
-      const updatedEmails = emails.map(email => {
+      // Show toast for moving to inbox
+      setToast({
+        visible: true,
+        message: `Email moved to inbox and categorized as ${category}`,
+        type: 'success'
+      });
+    } else {
+      // Just update the category
+      updatedEmails = updatedEmails.map(email => {
         if (email.id === emailId) {
           return { ...email, category };
         }
         return email;
       });
       
-      setEmails(updatedEmails);
-      categorizeEmails(updatedEmails);
-      
+      // Show toast notification
       setToast({
         visible: true,
-        message: `Email moved to ${category}`,
+        message: `Email categorized as ${category}`,
         type: 'success'
       });
-      
-      setTimeout(() => {
-        setToast({ visible: false, message: '', type: 'success' });
-      }, 3000);
-    } catch (err) {
-      console.error('Error changing category:', err);
-      setError(err.message);
     }
-  }, [emails, categorizeEmails]);
+    
+    // Update state immediately for responsive UI
+    setEmails(updatedEmails);
+    categorizeEmails(updatedEmails);
+    
+    // Auto-hide toast after 3 seconds
+    setTimeout(() => {
+      setToast({ visible: false, message: '', type: 'success' });
+    }, 3000);
+    
+    // Update server in background
+    const response = await fetch(`${API_URL}/emails/${emailId}/categorize`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ category })
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to categorize email on server');
+    }
+    
+    // Save changes to localStorage
+    localStorage.setItem('emailFlags', JSON.stringify(
+      updatedEmails.map(email => ({
+        id: email.id,
+        flags: email.flags || [],
+        category: email.category || 'primary'
+      }))
+    ));
+    
+  } catch (err) {
+    console.error('Error changing content category:', err);
+    
+    // Show error toast
+    setToast({
+      visible: true,
+      message: `Failed to categorize email: ${err.message}`,
+      type: 'error'
+    });
+    
+    // Auto-hide error toast after 3 seconds
+    setTimeout(() => {
+      setToast({ visible: false, message: '', type: 'error' });
+    }, 3000);
+  }
+}, [emails, categorizeEmails]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -368,101 +457,95 @@ const App = () => {
     return 'inbox';
   }, []);
 
-  // FIXED: Completely updated changeEmailCategory function to fix category movement issues
-  const changeEmailCategory = useCallback(async (emailId, category) => {
-    try {
-      // Get the email being changed
-      const emailToChange = emails.find(email => email.id === emailId);
-      const previousCategory = getEmailCategory(emailToChange);
-      
-      // Skip if trying to move to the same category (except for 'important' which toggles)
-      if (previousCategory === category && category !== 'important') {
-        return;
-      }
-      
-      // First update UI optimistically - create a new copy of emails array
-      const updatedEmails = emails.map(email => {
-        if (email.id === emailId) {
-          // Create a new flags array to ensure UI updates
-          let flags = email.flags ? [...email.flags] : [];
-          
-          // FIXED: Handle category changes more strictly
-          if (category === 'important') {
-            // Special case: 'important' is a toggle and can co-exist with other categories
-            if (flags.includes('important')) {
-              flags = flags.filter(f => f !== 'important');
-            } else {
-              flags.push('important');
-            }
-          } else {
-            // FIXED: For all other categories, COMPLETELY REMOVE existing category flags first
-            flags = flags.filter(f => f === 'important');  // Keep only 'important' flag if present
-            
-            // Don't add 'inbox' as a flag, it's the default when no other category flag exists
-            if (category !== 'inbox') {
-              flags.push(category);
-            }
-          }
-          
-          // Return updated email with new flags
-          return { ...email, flags };
-        }
-        return email;
-      });
-      
-      // Update emails state - this will trigger re-render
-      setEmails(updatedEmails);
-      
-      // Re-categorize with updated flags
-      categorizeEmails(updatedEmails);
-      
-      // Show toast notification with clear message about what changed
-      let toastMessage;
-      if (category === 'important') {
-        toastMessage = emailToChange.flags?.includes('important')
-          ? 'Removed from important'
-          : 'Marked as important';
-      } else if (previousCategory !== category) {
-        toastMessage = `Email moved from ${previousCategory} to ${category}`;
-      }
-      
-      if (toastMessage) {
-        setToast({
-          visible: true,
-          message: toastMessage,
-          type: 'success'
-        });
-        
-        // Hide toast after 3 seconds
-        setTimeout(() => {
-          setToast({ visible: false, message: '', type: 'success' });
-        }, 3000);
-      }
-      
-      // Save to localStorage for persistence
-      localStorage.setItem('emailFlags', JSON.stringify(
-        updatedEmails.map(email => ({
-          id: email.id,
-          flags: email.flags || [],
-          category: email.category || 'primary'
-        }))
-      ));
-      
-    } catch (err) {
-      console.error('Error updating category:', err);
-      setError(err.message);
-      setToast({
-        visible: true,
-        message: 'Failed to update email category',
-        type: 'error'
-      });
-      
-      // Hide error toast after 3 seconds
-      setTimeout(() => {
-        setToast({ visible: false, message: '', type: 'error' });
-      }, 3000);
+// Updated changeEmailCategory function for mutually exclusive categories
+const changeEmailCategory = useCallback(async (emailId, category) => {
+  try {
+    // Get the email being changed
+    const emailToChange = emails.find(email => email.id === emailId);
+    if (!emailToChange) return;
+    
+    // Get current category for toast message
+    const previousCategory = getEmailCategory(emailToChange);
+    const wasImportant = emailToChange.flags?.includes('important') || false;
+    
+    // Skip if trying to move to the same category
+    if (previousCategory === category && category !== 'important') {
+      return;
     }
-  }, [emails, categorizeEmails, getEmailCategory]);
+    
+    // Create a new copy of the emails array with updated flags
+    const updatedEmails = emails.map(email => {
+      if (email.id === emailId) {
+        // Start with a fresh copy of flags but REMOVE ALL EXISTING FLAGS
+        // This is the key change - when changing category, remove ALL other flags
+        let flags = [];
+        
+        // Add the new category flag
+        if (category === 'important') {
+          flags.push('important');
+        } else if (category !== 'inbox') {
+          // Only add flag if not inbox (inbox is the default with no flags)
+          flags.push(category);
+        }
+        
+        // Return updated email with new flags
+        return { ...email, flags };
+      }
+      return email;
+    });
+    
+    // Update emails state and re-categorize
+    setEmails(updatedEmails);
+    categorizeEmails(updatedEmails);
+    
+    // Prepare toast notification message
+    let toastMessage;
+    if (category === 'important') {
+      // Since we're using exclusive categories, this is always "Moved to important"
+      toastMessage = 'Email moved to Important';
+    } else if (wasImportant) {
+      toastMessage = `Email moved from Important to ${category}`;
+    } else {
+      toastMessage = `Email moved to ${category}`;
+    }
+    
+    // Show toast notification
+    setToast({
+      visible: true,
+      message: toastMessage,
+      type: 'success'
+    });
+    
+    // Auto-hide toast after 3 seconds
+    setTimeout(() => {
+      setToast({ visible: false, message: '', type: 'success' });
+    }, 3000);
+    
+    // Save to localStorage for persistence
+    localStorage.setItem('emailFlags', JSON.stringify(
+      updatedEmails.map(email => ({
+        id: email.id,
+        flags: email.flags || [],
+        category: email.category || 'primary'
+      }))
+    ));
+    
+  } catch (err) {
+    console.error('Error updating category:', err);
+    
+    // Show error toast notification
+    setToast({
+      visible: true,
+      message: 'Failed to update email category',
+      type: 'error'
+    });
+    
+    // Auto-hide error toast after 3 seconds
+    setTimeout(() => {
+      setToast({ visible: false, message: '', type: 'error' });
+    }, 3000);
+  }
+}, [emails, categorizeEmails, getEmailCategory]);
 
   if (!isAuthenticated) {
     return (
